@@ -1,0 +1,61 @@
+#cloud-config
+# Provisions the Ubuntu 24.04 VM: Docker, firewall, bounded logs.
+# Used by infra/vm/provision.sh (Multipass). Works the same on any cloud VM
+# that accepts cloud-init user-data.
+
+package_update: true
+package_upgrade: false
+packages:
+  - docker.io
+  - docker-compose-v2
+  - curl
+  - jq
+  - ufw
+
+write_files:
+  # Bounded container logs: max 3 x 10 MB per container.
+  - path: /etc/docker/daemon.json
+    content: |
+      {
+        "log-driver": "json-file",
+        "log-opts": { "max-size": "10m", "max-file": "3" }
+      }
+  # Bounded system journal.
+  - path: /etc/systemd/journald.conf.d/size.conf
+    content: |
+      [Journal]
+      SystemMaxUse=200M
+  # Installs the GitHub Actions self-hosted runner as a systemd service.
+  - path: /opt/rfam/install-runner.sh
+    permissions: "0755"
+    content: |
+      #!/usr/bin/env bash
+      # usage: install-runner.sh <repo-url> <registration-token>   (run as ubuntu)
+      set -euo pipefail
+      URL="$1"; TOKEN="$2"
+      cd "$HOME"
+      if [ ! -f actions-runner/.runner ]; then
+        case "$(uname -m)" in x86_64) ARCH=x64 ;; aarch64) ARCH=arm64 ;; esac
+        VER=$(curl -fsSL https://api.github.com/repos/actions/runner/releases/latest | jq -r .tag_name | sed 's/^v//')
+        mkdir -p actions-runner && cd actions-runner
+        curl -fsSL -o runner.tgz "https://github.com/actions/runner/releases/download/v${VER}/actions-runner-linux-${ARCH}-${VER}.tar.gz"
+        tar xzf runner.tgz && rm runner.tgz
+        ./config.sh --unattended --url "$URL" --token "$TOKEN" \
+          --name rfam-vm --labels rfam-vm --replace
+        sudo ./svc.sh install ubuntu
+      else
+        cd actions-runner
+      fi
+      sudo ./svc.sh start
+      echo "runner installed and started"
+
+runcmd:
+  - usermod -aG docker ubuntu
+  - systemctl restart systemd-journald
+  - systemctl enable --now docker
+  # Only SSH and HTTP are reachable from outside.
+  - ufw default deny incoming
+  - ufw default allow outgoing
+  - ufw allow 22/tcp
+  - ufw allow 80/tcp
+  - ufw --force enable
