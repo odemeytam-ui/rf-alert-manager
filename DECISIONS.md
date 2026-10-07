@@ -80,10 +80,27 @@ capped at 1000 items (413).
 
 ## VM: Multipass + cloud-init, Ubuntu 24.04, running locally
 
-- Free, no cloud account, and recreated with one command.
+- Free, no cloud account, and recreated with one command (`infra/vm/provision.sh`).
 - cloud-init is the same format cloud providers accept, so `infra/vm/cloud-init.yaml`
   can provision an EC2 / Oracle / Hetzner VM unchanged.
+- The VM is defined entirely as code: packages, firewall (only 22 and 80), bounded
+  Docker and journal logs, and the GitHub runner installer all come from cloud-init.
+- `provision.sh` verifies the result instead of assuming it: it stops with a clear error
+  if the VM received an empty cloud-init configuration, or if Docker was not installed.
 
+### My environment: Windows + WSL2
+
+- Multipass runs with the QEMU driver inside WSL2. The VM's IP is reachable from WSL,
+  not necessarily from Windows apps, so `curl`, the smoke test and the simulator run
+  from WSL.
+- Docker sets the `FORWARD` firewall policy in WSL to `DROP`, which also blocked the VM's
+  internet access, so cloud-init could not install packages. Fixed by enabling IP
+  forwarding and setting the policy to `ACCEPT`, applied at every WSL start via
+  `/etc/wsl.conf`. Fine for a local machine; on a shared host I would allow only the
+  Multipass bridge network. (Details in AI_USAGE.md.)
+- None of this affects CI/CD: the self-hosted runner inside the VM only needs
+  **outbound** internet access to reach GitHub and GHCR.
+  
 ## CI/CD: GitHub Actions + self-hosted runner on the VM
 
 The VM is not reachable from the internet. Options considered:
