@@ -1,0 +1,33 @@
+# Manual rollback: Actions tab -> "rollback" -> Run workflow.
+# Leave "tag" empty to go back to the previous release, or paste a commit SHA.
+name: rollback
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Image tag (commit SHA). Empty = previous release."
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  rollback:
+    runs-on: [self-hosted, rfam-vm]
+    environment: production
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - name: Log in to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+      - name: Roll back
+        env:
+          TAG: ${{ inputs.tag }}
+        run: bash "$HOME/rfam/deploy/rollback.sh" "$TAG"
+      - name: Smoke test
+        run: bash deploy/smoke_test.sh http://localhost

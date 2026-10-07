@@ -1,0 +1,92 @@
+# CI on every push / PR. On main: build -> publish to GHCR -> deploy to the VM ->
+# smoke test -> automatic rollback if the smoke test fails.
+name: pipeline
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: lint & test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - run: uv sync --frozen
+      - name: Lint
+        run: |
+          uv run ruff check .
+          uv run ruff format --check .
+      - name: Test
+        run: uv run pytest -v
+
+  build:
+    name: build & publish image
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image: ${{ steps.meta.outputs.image }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: meta
+        run: echo "image=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      # amd64 + arm64: the VM is ARM on Apple Silicon Macs, x86 elsewhere.
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.image }}:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy:
+    name: deploy & verify
+    needs: build
+    # Runs ON the VM: the runner connects out to GitHub, so a local VM that is not
+    # reachable from the internet still gets deployments. See DECISIONS.md.
+    runs-on: [self-hosted, rfam-vm]
+    environment: production
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      packages: read
+    env:
+      IMAGE: ${{ needs.build.outputs.image }}
+      IMAGE_TAG: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Log in to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+      - name: Deploy ${{ github.sha }}
+        env:
+          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+        run: bash deploy/deploy.sh
+      - name: Smoke test
+        run: bash deploy/smoke_test.sh http://localhost
+      - name: Roll back on failure
+        if: failure()
+        run: |
+          bash "$HOME/rfam/deploy/rollback.sh" || echo "no previous release to roll back to"
+          echo "::error::Deployment of ${{ github.sha }} failed and was rolled back"
+          exit 1
