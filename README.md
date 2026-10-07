@@ -79,6 +79,31 @@ self-hosted runner with the label `rfam-vm`. Then, once:
 gh secret set POSTGRES_PASSWORD          # database password used on the VM
 ```
 
+### Windows (WSL2) notes
+
+Tested on Windows with Multipass running under QEMU inside WSL2. Two things to know:
+
+- **The VM has no internet / cloud-init fails to install Docker.** Docker sets the
+  `FORWARD` firewall policy in WSL to `DROP`, which also blocks the VM's traffic.
+  Fix it in WSL, then re-run the VM setup:
+
+```bash
+  sudo sysctl -w net.ipv4.ip_forward=1
+  sudo iptables -P FORWARD ACCEPT
+  multipass exec rfam -- sudo cloud-init clean --logs --reboot
+```
+
+  To apply it on every WSL start, add to `/etc/wsl.conf`:
+
+```ini
+  [boot]
+  command="sysctl -w net.ipv4.ip_forward=1; iptables -P FORWARD ACCEPT"
+```
+
+- **Reaching the VM.** Its IP (`multipass info rfam`) is reachable from the WSL
+  terminal, not necessarily from Windows apps. Run `curl`, the smoke test and the
+  simulator from WSL.
+  
 ## Deploy
 
 Push or merge to `main`. The `pipeline` workflow then:
