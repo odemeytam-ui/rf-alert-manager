@@ -46,13 +46,12 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      # amd64 + arm64: the VM is ARM on Apple Silicon Macs, x86 elsewhere.
-      - uses: docker/setup-qemu-action@v3
+      # amd64 : the VM is ARM on Apple Silicon Macs, x86 elsewhere.
       - uses: docker/setup-buildx-action@v3
       - uses: docker/build-push-action@v6
         with:
           context: .
-          platforms: linux/amd64,linux/arm64
+          platforms: linux/amd64
           push: true
           tags: ${{ steps.meta.outputs.image }}:${{ github.sha }}
           cache-from: type=gha
