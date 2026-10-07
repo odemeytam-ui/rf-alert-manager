@@ -1,0 +1,14 @@
+# One public entry point; routes each API path to the service that owns it.
+:80 {
+	handle /api/v1/alerts* {
+		reverse_proxy alerts:8000
+	}
+	# Per-service health / metrics for the alert service
+	handle_path /alerts-service/* {
+		reverse_proxy alerts:8000
+	}
+	# observations, sensors, rules, /health, /metrics
+	handle {
+		reverse_proxy ingest:8000
+	}
+}

@@ -1,0 +1,84 @@
+# Full stack: reverse proxy -> two app services -> PostgreSQL + Redis.
+# Only Caddy publishes a port. Everything else is on the internal network.
+#
+# Local:  cp .env.example .env && docker compose up -d --build
+# VM:     IMAGE_TAG=<sha> docker compose up -d --no-build   (done by deploy/deploy.sh)
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+x-app: &app
+  image: ${IMAGE:-ghcr.io/example/rf-alert-manager}:${IMAGE_TAG:-local}
+  restart: unless-stopped
+  logging: *logging
+  environment: &app-env
+    DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-rfam}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:-rfam}
+    REDIS_URL: redis://redis:6379/0
+    STREAM_NAME: rf.events
+    LOG_LEVEL: ${LOG_LEVEL:-INFO}
+  depends_on:
+    postgres: { condition: service_healthy }
+    redis: { condition: service_healthy }
+
+services:
+  ingest:
+    build: .
+    <<: *app
+    environment:
+      <<: *app-env
+      SERVICE: ingest
+      RULES_FILE: /app/config/rules.yaml
+
+  alerts:
+    <<: *app
+    environment:
+      <<: *app-env
+      SERVICE: alerts
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    logging: *logging
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-rfam}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-rfam}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    logging: *logging
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    logging: *logging
+    ports:
+      - "${HTTP_PORT:-80}:80"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+    depends_on:
+      ingest: { condition: service_healthy }
+      alerts: { condition: service_healthy }
+
+volumes:
+  pgdata:
+  redisdata:
