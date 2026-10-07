@@ -1,0 +1,1 @@
+"""RF Alert Manager."""
