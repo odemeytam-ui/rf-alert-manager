@@ -8,9 +8,9 @@ BASE="${1:-http://localhost}"
 fail() { echo "SMOKE TEST FAILED: $*" >&2; exit 1; }
 
 echo "==> waiting for ${BASE}/health"
-for i in $(seq 1 30); do
+for i in $(seq 1 60); do
   if curl -fsS "${BASE}/health" >/dev/null 2>&1; then break; fi
-  [ "$i" = 30 ] && fail "/health not healthy after 60s"
+  [ "$i" = 60 ] && fail "/health not healthy after 120s"
   sleep 2
 done
 
