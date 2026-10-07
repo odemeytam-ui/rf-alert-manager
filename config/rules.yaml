@@ -1,0 +1,27 @@
+# Rules loaded at startup by the ingest service (RULES_FILE env var).
+# A rule is only inserted if it does not exist yet, so edits made through the
+# API are kept across restarts.
+rules:
+  - rule_id: rule-ism-high-power
+    name: High power in protected ISM band
+    type: power_threshold
+    band: { min_mhz: 2400.0, max_mhz: 2483.5 }
+    threshold_dbm: -50.0
+    min_duration_s: 10
+    max_gap_s: 5
+    resolve_after_s: 30
+    frequency_tolerance_khz: 100
+    severity: HIGH
+    enabled: true
+
+  - rule_id: rule-58-multi-sensor
+    name: Same signal seen by 3+ sensors in the 5.8 GHz band
+    type: multi_sensor
+    band: { min_mhz: 5725.0, max_mhz: 5850.0 }
+    min_sensors: 3
+    window_s: 10
+    frequency_tolerance_khz: 100
+    min_power_dbm: -70.0
+    resolve_after_s: 30
+    severity: MEDIUM
+    enabled: true
